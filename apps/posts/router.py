@@ -1,21 +1,19 @@
-from typing import List, Any, Dict
+from typing import List
 
 from fastapi import APIRouter, Depends
 
 from .dependencies import PostRepository, get_post_repository
-from .models import CreatePostParams, Post, UpdatePostParams, UpdatedPost
+from .models import (
+    CreatePostParams,
+    UpdatePostParams,
+    Post,
+    CreatedPost,
+    DetailPost,
+    UpdatedPost,
+)
 
 
 router = APIRouter()
-
-
-@router.get("/{post_id}", tags=["posts"], response_model=Dict[str, Any])
-async def list_posts(
-    post_id,
-    repository: PostRepository = Depends(get_post_repository),
-):
-    posts = await repository.post_detail(post_id)
-    return posts
 
 
 @router.get("/", tags=["posts"], response_model=List[Post])
@@ -26,9 +24,7 @@ async def list_posts(
     return posts
 
 
-@router.post(
-    "/", tags=["posts"], response_model=CreatePostParams, status_code=201
-)
+@router.post("/", tags=["posts"], response_model=CreatedPost, status_code=201)
 async def create_post(
     post: CreatePostParams,
     repository: PostRepository = Depends(get_post_repository),
@@ -37,11 +33,18 @@ async def create_post(
     return post
 
 
-@router.put(
-    "/{post_id}", tags=["posts"], response_model=UpdatedPost, status_code=200
-)
+@router.get("/{post_id}", tags=["posts"], response_model=DetailPost)
+async def post_details(
+    post_id: int,
+    repository: PostRepository = Depends(get_post_repository),
+):
+    posts = await repository.post_details(post_id)
+    return posts
+
+
+@router.put("/{post_id}", tags=["posts"], response_model=UpdatedPost)
 async def update_post(
-    post_id,
+    post_id: int,
     post: UpdatePostParams,
     repository: PostRepository = Depends(get_post_repository),
 ):
