@@ -1,6 +1,6 @@
 from typing import Any, List, Dict
 
-import aiohttp
+from aiohttp import ClientSession
 
 from .models import (
     CreatePostParams,
@@ -14,10 +14,14 @@ from .models import (
 
 class PostRepository:
     def __init__(self, session) -> None:
-        self._session = session
+        self._session_obj = session
+        self._session = None
         self._posts = "https://jsonplaceholder.typicode.com/posts"
         self._users = "https://jsonplaceholder.typicode.com/users"
         self._comments = "https://jsonplaceholder.typicode.com/comments"
+
+    async def run_session(self):
+        self._session = self._session_obj()
 
     async def list_posts(self) -> List[Post]:
         raw_posts = await self._list_posts()
@@ -38,36 +42,32 @@ class PostRepository:
         return self._convert_updated_post(raw_post)
 
     async def _list_posts(self) -> List[Dict[str, Any]]:
-        async with self._session() as session:
-            resp = await session.get(self._posts)
-            raw_posts = await resp.json()
-            return raw_posts
+        resp = await self._session.get(self._posts)
+        raw_posts = await resp.json()
+        return raw_posts
 
     async def _create_post(self, post: CreatePostParams) -> Dict[str, Any]:
-        async with self._session() as session:
-            resp = await session.post(self._posts, json=post.dict())
-            raw_post = await resp.json()
-            return raw_post
+        resp = await self._session.post(self._posts, json=post.dict())
+        raw_post = await resp.json()
+        return raw_post
 
     async def _post_details(self, post_id: int) -> Dict[str, Any]:
-        async with self._session() as session:
-            resp = await session.get(f"{self._posts}/{post_id}")
-            raw_post = await resp.json()
-            raw_comments = await self._get_comments(post_id)
-            raw_users = await self._get_users()
-            await self._merge_post_with_author(raw_post, raw_users)
-            raw_post["comments"] = raw_comments
-            return raw_post
+        resp = await self._session.get(f"{self._posts}/{post_id}")
+        raw_post = await resp.json()
+        raw_comments = await self._get_comments(post_id)
+        raw_users = await self._get_users()
+        await self._merge_post_with_author(raw_post, raw_users)
+        raw_post["comments"] = raw_comments
+        return raw_post
 
     async def _update_post(
         self, post_id: int, post: UpdatePostParams
     ) -> Dict[str, Any]:
-        async with self._session() as session:
-            resp = await session.put(
-                f"{self._posts}/{post_id}", json=post.dict()
-            )
-            raw_post = await resp.json()
-            return raw_post
+        resp = await self._session.put(
+            f"{self._posts}/{post_id}", json=post.dict()
+        )
+        raw_post = await resp.json()
+        return raw_post
 
     def _convert_post(self, raw_post: Dict[str, Any]) -> Post:
         return Post(**raw_post)
@@ -82,23 +82,21 @@ class PostRepository:
         return UpdatedPost(**raw_post)
 
     async def _get_users(self) -> List[Dict[str, Any]]:
-        async with self._session() as session:
-            resp = await session.get(self._users)
-            raw_users = await resp.json()
-            return raw_users
+        resp = await self._session.get(self._users)
+        raw_users = await resp.json()
+        return raw_users
 
     async def _get_comments(self, post_id: int) -> List[Dict[str, Any]]:
-        async with self._session() as session:
-            resp = await session.get(f"{self._comments}?postId={post_id}")
-            comments = await resp.json()
-            comments_list = []
-            for c in comments:
-                comment = {
-                    "id": c["id"],
-                    "body": c["body"],
-                }
-                comments_list.append(comment)
-            return comments_list
+        resp = await self._session.get(f"{self._comments}?postId={post_id}")
+        comments = await resp.json()
+        comments_list = []
+        for c in comments:
+            comment = {
+                "id": c["id"],
+                "body": c["body"],
+            }
+            comments_list.append(comment)
+        return comments_list
 
     async def _merge_post_with_author(
         self, raw_post: Dict[str, Any], raw_users: List[Dict[str, Any]]
@@ -115,7 +113,6 @@ class PostRepository:
                     author = {"error": "KeyError"}
                 raw_post["author"] = author
 
-    # ПОХОДУ ЭТО КОСТЫЛЬ, НО ПОКА Я НЕ ПОНЯЛ КАК СДЕЛАТЬ ЛУЧШЕ
     async def _merge_posts_with_author(
         self, posts: List[Dict[str, Any]], users: List[Dict[str, Any]]
     ) -> None:
@@ -132,16 +129,17 @@ class PostRepository:
                         author = {"error": "KeyError"}
                     post["author"] = author
 
+    def __del__(self):
+        self._session.close()
+
 
 class PostRepositoryFactory:
-    def __init__(self, repo, session) -> None:
+    def __init__(self, repo) -> None:
         self._repo = repo
-        self._session = session
 
-    def __call__(self) -> PostRepository:
-        return self._repo(self._session)
+    async def __call__(self) -> PostRepository:
+        await self._repo.run_session()
+        return self._repo
 
 
-get_post_repository = PostRepositoryFactory(
-    PostRepository, aiohttp.ClientSession
-)
+get_post_repository = PostRepositoryFactory(PostRepository(ClientSession))
