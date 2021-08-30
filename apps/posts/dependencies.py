@@ -1,7 +1,10 @@
 from typing import Any, List, Dict
 
+from fastapi import Depends
+
 from aiohttp import ClientSession
 
+from apps.session import get_session
 from .models import (
     CreatePostParams,
     Post,
@@ -14,20 +17,16 @@ from .models import (
 
 class PostRepository:
     def __init__(self, session) -> None:
-        self._session_obj = session
-        self._session = None
+        self._session = session
         self._posts = "https://jsonplaceholder.typicode.com/posts"
         self._users = "https://jsonplaceholder.typicode.com/users"
         self._comments = "https://jsonplaceholder.typicode.com/comments"
 
-    async def run_session(self):
-        self._session = self._session_obj()
-
     async def list_posts(self) -> List[Post]:
         raw_posts = await self._list_posts()
         raw_users = await self._get_users()
-        await self._merge_posts_with_author(raw_posts, raw_users)
-        return [self._convert_post(post) for post in raw_posts]
+        posts = await self._merge_posts_with_author(raw_posts, raw_users)
+        return [self._convert_post(post) for post in posts]
 
     async def create_post(self, post: CreatePostParams):
         raw_post = await self._create_post(post)
@@ -56,9 +55,9 @@ class PostRepository:
         raw_post = await resp.json()
         raw_comments = await self._get_comments(post_id)
         raw_users = await self._get_users()
-        await self._merge_post_with_author(raw_post, raw_users)
-        raw_post["comments"] = raw_comments
-        return raw_post
+        post = await self._merge_post_with_author(raw_post, raw_users)
+        post["comments"] = raw_comments
+        return post
 
     async def _update_post(
         self, post_id: int, post: UpdatePostParams
@@ -100,7 +99,8 @@ class PostRepository:
 
     async def _merge_post_with_author(
         self, raw_post: Dict[str, Any], raw_users: List[Dict[str, Any]]
-    ) -> None:
+    ) -> Dict[str, Any]:
+        post = dict(raw_post)
         for user in raw_users:
             if user["id"] == raw_post["userId"]:
                 try:
@@ -111,11 +111,13 @@ class PostRepository:
                     }
                 except KeyError:
                     author = {"error": "KeyError"}
-                raw_post["author"] = author
+                post["author"] = author
+        return post
 
     async def _merge_posts_with_author(
         self, posts: List[Dict[str, Any]], users: List[Dict[str, Any]]
-    ) -> None:
+    ) -> List:
+        posts = list(posts)
         for post in posts:
             for user in users:
                 if user["id"] == post["userId"]:
@@ -128,18 +130,14 @@ class PostRepository:
                     except KeyError:
                         author = {"error": "KeyError"}
                     post["author"] = author
-
-    def __del__(self):
-        self._session.close()
+        return posts
 
 
 class PostRepositoryFactory:
-    def __init__(self, repo) -> None:
-        self._repo = repo
-
-    async def __call__(self) -> PostRepository:
-        await self._repo.run_session()
-        return self._repo
+    async def __call__(
+        self, session: ClientSession = Depends(get_session)
+    ) -> PostRepository:
+        return PostRepository(session)
 
 
-get_post_repository = PostRepositoryFactory(PostRepository(ClientSession))
+get_post_repository = PostRepositoryFactory()
